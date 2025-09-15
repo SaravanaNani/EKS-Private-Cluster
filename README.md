@@ -56,7 +56,7 @@ This document provides step-by-step instructions to set up an AWS EKS cluster wi
 
 * Ingress: 443 → `adq-dev-sg-eks-controlplane`
   10250 → `adq-dev-sg-eks-nodes`
-  30000–32767 → VPC CIDR 10.10.0.0/16
+  30000–32767 → 0.0.0.0/0 - anywhere
   22 → `adq-dev-sg-bastion`
 
 **1.4.4 DB SG: `adq-dev-sg-db`**
