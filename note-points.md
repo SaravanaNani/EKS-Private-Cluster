@@ -678,43 +678,46 @@
 
 
 ### cat /ete/loki/loki-config.yaml
+            
+            server:
+              http_listen_port: 3100
+              http_listen_address: 0.0.0.0
+              log_level: info
+            
+            auth_enabled: false   # 👈 disable tenant checks
+            
+            ingester:
+              lifecycler:
+                ring:
+                  kvstore:
+                    store: inmemory
+                  replication_factor: 1
+              chunk_idle_period: 5m
+              chunk_retain_period: 30s
+              wal:
+                dir: /var/loki/wal
+            
+            schema_config:
+              configs:
+                - from: 2020-10-24
+                  store: boltdb-shipper
+                  object_store: filesystem
+                  schema: v11
+                  index:
+                    prefix: index_
+                    period: 24h
+            
+            storage_config:
+              boltdb_shipper:
+                active_index_directory: /var/loki/index
+                cache_location: /var/loki/cache
+                shared_store: filesystem
+              filesystem:
+                directory: /var/loki/chunks
+            
+            compactor:
+              working_directory: /var/loki/compactor
 
-    server:
-      http_listen_port: 3100
-      http_listen_address: 0.0.0.0
-      log_level: info
-    
-    ingester:
-      lifecycler:
-        ring:
-          kvstore:
-            store: inmemory
-          replication_factor: 1
-      chunk_idle_period: 5m
-      chunk_retain_period: 30s
-      wal:
-        dir: /var/loki/wal
-    
-    schema_config:
-      configs:
-        - from: 2020-10-24
-          store: boltdb-shipper
-          object_store: filesystem
-          schema: v11
-          index:
-            prefix: index_
-            period: 24h
-    
-    storage_config:
-      boltdb_shipper:
-        active_index_directory: /var/loki/index
-        cache_location: /var/loki/cache
-        shared_store: filesystem
-      filesystem:
-        directory: /var/loki/chunks
-    
-    compactor:
-      working_directory: /var/loki/compactor
     
 ### /etc/systemd/system/ loki.service
      
