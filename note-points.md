@@ -647,7 +647,6 @@
 
 ### cAdvisor.yaml
 
-    apiVersion: apps/v1
     kind: DaemonSet
     metadata:
       name: cadvisor
@@ -667,7 +666,7 @@
             - name: cadvisor
               image: gcr.io/cadvisor/cadvisor:v0.47.2
               ports:
-                - name: http
+                - name: http-metrics   # 👈 matches PodMonitor port
                   containerPort: 8080
               volumeMounts:
                 - name: rootfs
@@ -694,7 +693,7 @@
                 path: /sys
             - name: docker
               hostPath:
-                path: /var/lib/docker
+                path: /var/lib/docker    
  ### ebs-csi-policy.json
 
      {
