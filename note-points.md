@@ -516,134 +516,86 @@
     
 ### promtail.yaml
 
-    apiVersion: v1
-    kind: ServiceAccount
-    metadata:
-      name: promtail
-      namespace: monitoring
-    ---
-    apiVersion: rbac.authorization.k8s.io/v1
-    kind: ClusterRole
-    metadata:
-      name: promtail
-    rules:
-      - apiGroups: [""]
-        resources:
-          - pods
-          - namespaces
-          - nodes
-        verbs:
-          - get
-          - list
-          - watch
-    ---
-    apiVersion: rbac.authorization.k8s.io/v1
-    kind: ClusterRoleBinding
-    metadata:
-      name: promtail
-    roleRef:
-      apiGroup: rbac.authorization.k8s.io
-      kind: ClusterRole
-      name: promtail
-    subjects:
-      - kind: ServiceAccount
-        name: promtail
-        namespace: monitoring
-    ---
-    
-    # -------------------------
-    # ConfigMap: Promtail config
-    # -------------------------
-    apiVersion: v1
-    kind: ConfigMap
-    metadata:
-      name: promtail-config
-      namespace: monitoring
-    data:
-      promtail.yaml: |
-        server:
-          http_listen_port: 9080
-          grpc_listen_port: 0
-    
-        positions:
-          filename: /run/promtail/positions.yaml
-    
-        clients:
-          - url: http://10.10.101.140:3100/loki/api/v1/push
-    
-        scrape_configs:
-          # Collect host logs
-          - job_name: varlogs
-            static_configs:
-              - targets: [localhost]
-                labels:
-                  job: varlogs
-                  __path__: /var/log/*log
-    
-          # Collect logs from all pods
-          - job_name: kubernetes-pods
-            kubernetes_sd_configs:
-              - role: pod
-            relabel_configs:
-              - source_labels: [__meta_kubernetes_namespace]
-                target_label: namespace
-              - source_labels: [__meta_kubernetes_pod_name]
-                target_label: pod
-              - source_labels: [__meta_kubernetes_pod_label_app]
-                target_label: app
-              - action: replace
-                replacement: kubernetes
-                target_label: job
-    
-    ---
-    #-------------------------
-    # DaemonSet: Promtail
-    # -------------------------
-    apiVersion: apps/v1
-    kind: DaemonSet
-    metadata:
-      name: promtail
-      namespace: monitoring
-      labels:
-        app: promtail
-    spec:
-      selector:
-        matchLabels:
-          app: promtail
-      template:
+        apiVersion: v1
+        kind: ServiceAccount
         metadata:
-          labels:
-            app: promtail
-        spec:
-          serviceAccountName: promtail   # 🔹 use your existing SA
-          tolerations:
-            - operator: Exists
-          containers:
-            - name: promtail
-              image: grafana/promtail:2.9.0
-              args:
-                - -config.file=/etc/promtail/promtail.yaml
-              volumeMounts:
-                - name: config
-                  mountPath: /etc/promtail
-                - name: varlog
-                  mountPath: /var/log
-                - name: positions
-                  mountPath: /run/promtail
-          volumes:
-            - name: config
-              configMap:
-                name: promtail-config
-                items:
-                  - key: promtail.yaml
-                    path: promtail.yaml
-            - name: varlog
-              hostPath:
-                path: /var/log
-            - name: positions
-              hostPath:
-                path: /run/promtail
-                type: DirectoryOrCreate
+          name: promtail
+          namespace: monitoring
+        ---
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRole
+        metadata:
+          name: promtail
+        rules:
+          - apiGroups: [""]
+            resources:
+              - pods
+              - namespaces
+              - nodes
+            verbs:
+              - get
+              - list
+              - watch
+        ---
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRoleBinding
+        metadata:
+          name: promtail
+        roleRef:
+          apiGroup: rbac.authorization.k8s.io
+          kind: ClusterRole
+          name: promtail
+        subjects:
+          - kind: ServiceAccount
+            name: promtail
+            namespace: monitoring
+        ---
+        
+        # -------------------------
+        # ConfigMap: Promtail config
+        # -------------------------
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: promtail-config
+          namespace: monitoring
+        data:
+          promtail.yaml: |
+            server:
+              http_listen_port: 9080
+              grpc_listen_port: 0
+        
+            positions:
+              filename: /run/promtail/positions.yaml
+        
+            clients:
+              - url: http://10.10.101.140:3100/loki/api/v1/push
+        
+            scrape_configs:
+              # Collect host logs
+              - job_name: varlogs
+                static_configs:
+                  - targets: [localhost]
+                    labels:
+                      job: varlogs
+                      __path__: /var/log/*log
+        
+              # Collect logs from Kubernetes pods
+              - job_name: kubernetes-pods
+                kubernetes_sd_configs:
+                  - role: pod
+                pipeline_stages:
+                  - docker: {}
+                relabel_configs:
+                  - source_labels: [__meta_kubernetes_namespace]
+                    target_label: namespace
+                  - source_labels: [__meta_kubernetes_pod_name]
+                    target_label: pod
+                  - source_labels: [__meta_kubernetes_pod_container_name]
+                    target_label: container
+                  - source_labels: [__meta_kubernetes_node_name]
+                    target_label: node
+   
 
 ### cAdvisor.yaml
 
