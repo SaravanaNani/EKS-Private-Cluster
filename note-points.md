@@ -516,86 +516,136 @@
     
 ### promtail.yaml
 
-        apiVersion: v1
-        kind: ServiceAccount
-        metadata:
-          name: promtail
-          namespace: monitoring
-        ---
-        apiVersion: rbac.authorization.k8s.io/v1
-        kind: ClusterRole
-        metadata:
-          name: promtail
-        rules:
-          - apiGroups: [""]
-            resources:
-              - pods
-              - namespaces
-              - nodes
-            verbs:
-              - get
-              - list
-              - watch
-        ---
-        apiVersion: rbac.authorization.k8s.io/v1
-        kind: ClusterRoleBinding
-        metadata:
-          name: promtail
-        roleRef:
-          apiGroup: rbac.authorization.k8s.io
-          kind: ClusterRole
-          name: promtail
-        subjects:
-          - kind: ServiceAccount
-            name: promtail
-            namespace: monitoring
-        ---
-        
-        # -------------------------
-        # ConfigMap: Promtail config
-        # -------------------------
-        apiVersion: v1
-        kind: ConfigMap
-        metadata:
-          name: promtail-config
-          namespace: monitoring
-        data:
-          promtail.yaml: |
-            server:
-              http_listen_port: 9080
-              grpc_listen_port: 0
-        
-            positions:
-              filename: /run/promtail/positions.yaml
-        
-            clients:
-              - url: http://10.10.101.140:3100/loki/api/v1/push
-        
-            scrape_configs:
-              # Collect host logs
-              - job_name: varlogs
-                static_configs:
-                  - targets: [localhost]
-                    labels:
-                      job: varlogs
-                      __path__: /var/log/*log
-        
-              # Collect logs from Kubernetes pods
-              - job_name: kubernetes-pods
-                kubernetes_sd_configs:
-                  - role: pod
-                pipeline_stages:
-                  - docker: {}
-                relabel_configs:
-                  - source_labels: [__meta_kubernetes_namespace]
-                    target_label: namespace
-                  - source_labels: [__meta_kubernetes_pod_name]
-                    target_label: pod
-                  - source_labels: [__meta_kubernetes_pod_container_name]
-                    target_label: container
-                  - source_labels: [__meta_kubernetes_node_name]
-                    target_label: node
-   
+            apiVersion: v1
+            kind: ServiceAccount
+            metadata:
+              name: promtail
+              namespace: monitoring
+            ---
+            apiVersion: rbac.authorization.k8s.io/v1
+            kind: ClusterRole
+            metadata:
+              name: promtail
+            rules:
+              - apiGroups: [""]
+                resources:
+                  - pods
+                  - namespaces
+                  - nodes
+                verbs:
+                  - get
+                  - list
+                  - watch
+            ---
+            apiVersion: rbac.authorization.k8s.io/v1
+            kind: ClusterRoleBinding
+            metadata:
+              name: promtail
+            roleRef:
+              apiGroup: rbac.authorization.k8s.io
+              kind: ClusterRole
+              name: promtail
+            subjects:
+              - kind: ServiceAccount
+                name: promtail
+                namespace: monitoring
+            ---
+            apiVersion: v1
+            kind: ConfigMap
+            metadata:
+              name: promtail-config
+              namespace: monitoring
+            data:
+              promtail.yaml: |
+                server:
+                  http_listen_port: 9080
+                  grpc_listen_port: 0
+                  log_level: info
+            
+                positions:
+                  filename: /run/promtail/positions.yaml
+            
+                clients:
+                  - url: http://10.10.101.140:3100/loki/api/v1/push
+            
+                scrape_configs:
+                  # --- System logs ---
+                  - job_name: varlogs
+                    static_configs:
+                      - targets: [localhost]
+                        labels:
+                          job: varlogs
+                          __path__: /var/log/**/*.log
+            
+                  # --- Application logs ---
+                  - job_name: app-logs
+                    static_configs:
+                      - targets: [localhost]
+                        labels:
+                          job: app-logs
+                          namespace: adq-dev
+                          __path__: /var/log/adq-dev/*.log
+            
+                  # --- Kubernetes pod logs (Static discovery for private EKS) ---
+                  - job_name: kubernetes-pods-static
+                    static_configs:
+                      - targets: [localhost]
+                        labels:
+                          job: kubernetes-pods
+                          __path__: /var/log/pods/*/*/*.log
+                    pipeline_stages:
+                      - regex:
+                          expression: '/var/log/pods/(?P<namespace>[^_]+)_(?P<pod>[^_]+)_[^/]+/(?P<container>[^/]+)/.*'
+                      - labels:
+                          namespace:
+                          pod:
+                          container:
+            ---
+            apiVersion: apps/v1
+            kind: DaemonSet
+            metadata:
+              name: promtail
+              namespace: monitoring
+              labels:
+                app: promtail
+            spec:
+              selector:
+                matchLabels:
+                  app: promtail
+              template:
+                metadata:
+                  labels:
+                    app: promtail
+                spec:
+                  serviceAccountName: promtail
+                  tolerations:
+                    - operator: Exists
+                  containers:
+                    - name: promtail
+                      image: grafana/promtail:2.9.0
+                      args:
+                        - -config.file=/etc/promtail/promtail.yaml
+                      volumeMounts:
+                        - name: config
+                          mountPath: /etc/promtail
+                        - name: varlog
+                          mountPath: /var/log
+                          readOnly: true
+                        - name: positions
+                          mountPath: /run/promtail
+                  volumes:
+                    - name: config
+                      configMap:
+                        name: promtail-config
+                    - name: varlog
+                      hostPath:
+                        path: /var/log
+                    - name: positions
+                      hostPath:
+                        path: /run/promtail
+                        type: DirectoryOrCreate
+
+
 
 ### cAdvisor.yaml
 
@@ -678,45 +728,63 @@
 
 
 ### cat /ete/loki/loki-config.yaml
-            
-            server:
-              http_listen_port: 3100
-              http_listen_address: 0.0.0.0
-              log_level: info
-            
-            auth_enabled: false   # 👈 disable tenant checks
-            
-            ingester:
-              lifecycler:
-                ring:
-                  kvstore:
-                    store: inmemory
-                  replication_factor: 1
-              chunk_idle_period: 5m
-              chunk_retain_period: 30s
-              wal:
-                dir: /var/loki/wal
-            
-            schema_config:
-              configs:
-                - from: 2020-10-24
-                  store: boltdb-shipper
-                  object_store: filesystem
-                  schema: v11
-                  index:
-                    prefix: index_
-                    period: 24h
-            
-            storage_config:
-              boltdb_shipper:
-                active_index_directory: /var/loki/index
-                cache_location: /var/loki/cache
-                shared_store: filesystem
-              filesystem:
-                directory: /var/loki/chunks
-            
-            compactor:
-              working_directory: /var/loki/compactor
+                
+     server:
+      http_listen_port: 3100
+      http_listen_address: 0.0.0.0
+      log_level: info
+    
+    auth_enabled: false   # disable multi-tenant auth
+    
+    ingester:
+      lifecycler:
+        ring:
+          kvstore:
+            store: inmemory
+          replication_factor: 1
+      chunk_idle_period: 5m
+      chunk_retain_period: 30s
+      wal:
+        dir: /var/loki/wal
+    
+    schema_config:
+      configs:
+        - from: 2020-10-24
+          store: boltdb-shipper
+          object_store: filesystem
+          schema: v11
+          index:
+            prefix: index_
+            period: 24h
+    
+    storage_config:
+      boltdb_shipper:
+        active_index_directory: /var/loki/index
+        cache_location: /var/loki/cache
+        shared_store: filesystem
+      filesystem:
+        directory: /var/loki/chunks
+    
+    compactor:
+      working_directory: /var/loki/compactor
+      compaction_interval: 5m
+    
+    limits_config:
+      ingestion_rate_mb: 8
+      ingestion_burst_size_mb: 16
+      max_entries_limit_per_query: 5000
+      max_streams_per_user: 10000
+      reject_old_samples: true
+      retention_period: 168h   # 7 days retention
+    
+    chunk_store_config:
+      max_look_back_period: 0s
+    
+    table_manager:
+      retention_deletes_enabled: true
+      retention_period: 168h
+    
+         
 
     
 ### /etc/systemd/system/ loki.service
@@ -950,6 +1018,115 @@
         - record: instance:node_disk_utilisation:rate5m
           expr: rate(node_disk_io_time_seconds_total[5m])
 
+# loki dashbaord - json -> import dashboard
+
+    {
+      "title": "Unified EKS Logs (System + K8s + App)",
+      "uid": "eks-logs-unified-v2",
+      "timezone": "browser",
+      "schemaVersion": 38,
+      "version": 1,
+      "refresh": "10s",
+      "tags": ["loki","logs","kubernetes","promtail"],
+      "templating": {
+        "list": [
+          {
+            "name": "job",
+            "type": "query",
+            "datasource": "loki",
+            "refresh": 1,
+            "query": "label_values(job)",
+            "includeAll": true,
+            "multi": true,
+            "allValue": ".+",
+            "current": { "text": "All", "value": ".+" }
+          },
+          {
+            "name": "namespace",
+            "type": "query",
+            "datasource": "loki",
+            "refresh": 1,
+            "query": "label_values({job=~\"$job\"}, namespace)",
+            "includeAll": true,
+            "multi": true,
+            "allValue": ".+",
+            "current": { "text": "All", "value": ".+" }
+          },
+          {
+            "name": "pod",
+            "type": "query",
+            "datasource": "loki",
+            "refresh": 1,
+            "query": "label_values({job=~\"$job\", namespace=~\"$namespace\"}, pod)",
+            "includeAll": true,
+            "multi": true,
+            "allValue": ".+",
+            "current": { "text": "All", "value": ".+" }
+          },
+          {
+            "name": "container",
+            "type": "query",
+            "datasource": "loki",
+            "refresh": 1,
+            "query": "label_values({job=~\"$job\", namespace=~\"$namespace\", pod=~\"$pod\"}, container)",
+            "includeAll": true,
+            "multi": true,
+            "allValue": ".+",
+            "current": { "text": "All", "value": ".+" }
+          }
+        ]
+      },
+      "panels": [
+        {
+          "type": "timeseries",
+          "title": "Log volume by job",
+          "datasource": "loki",
+          "targets": [
+            { "expr": "sum by (job) (rate({job=~\"$job\"}[1m]))", "legendFormat": "{{job}}" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "ops" } },
+          "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 }
+        },
+        {
+          "type": "timeseries",
+          "title": "Log volume by namespace",
+          "datasource": "loki",
+          "targets": [
+            { "expr": "sum by (namespace) (rate({job=~\"$job\", namespace=~\"$namespace\"}[1m]))", "legendFormat": "{{namespace}}" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "ops" } },
+          "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 }
+        },
+        {
+          "type": "table",
+          "title": "Top pods by log lines",
+          "datasource": "loki",
+          "targets": [
+            { "expr": "topk(10, sum by (pod) (rate({job=~\"$job\", namespace=~\"$namespace\"}[5m])))", "legendFormat": "{{pod}}" }
+          ],
+          "gridPos": { "x": 0, "y": 8, "w": 12, "h": 7 }
+        },
+        {
+          "type": "table",
+          "title": "Top containers by log lines",
+          "datasource": "loki",
+          "targets": [
+            { "expr": "topk(10, sum by (container) (rate({job=~\"$job\", namespace=~\"$namespace\", pod=~\"$pod\"}[5m])))", "legendFormat": "{{container}}" }
+          ],
+          "gridPos": { "x": 12, "y": 8, "w": 12, "h": 7 }
+        },
+        {
+          "type": "logs",
+          "title": "Live logs",
+          "datasource": "loki",
+          "options": { "showLabels": true, "showTime": true, "wrapLogMessage": true },
+          "targets": [
+            { "expr": "{job=~\"$job\", namespace=~\"$namespace\", pod=~\"$pod\", container=~\"$container\"}" }
+          ],
+          "gridPos": { "x": 0, "y": 15, "w": 24, "h": 12 }
+        }
+      ]
+    }
 
  
  # Name Spaces   
