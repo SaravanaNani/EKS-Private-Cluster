@@ -1,12 +1,51 @@
 
 # Files
     [root@ip-10-10-101-140 ~]# ls
-    '\'                         devops-task.yaml            output.bin
-     aws                        eks-metric                  prometheus
-     aws-controller.yaml        eksctl_Linux_amd64.tar.gz   protect-namespaces.yaml
-     awscliv2.zip               kubectl                     tls-devops-task.yaml
-     devops-task-ingress.yaml   monitoring
+     aws                        eks-metric                  output.bin
+     aws-controller.yaml        eksctl_Linux_amd64.tar.gz   prometheus
+     awscliv2.zip               kubectl                     protect-namespaces.yaml
+     devops-task-ingress.yaml   log-app                     tls-devops-task.yaml
+    [root@ip-10-10-101-140 ~]#
 
+### log-app - create a image with this dir Dockerfiel and push to docker hub
+
+### Dockerfile:
+
+    # Use lightweight Node.js image
+    FROM node:18-alpine
+    
+    # Working directory inside container
+    WORKDIR /usr/src/app
+    
+    # Copy app files
+    COPY . .
+    
+    # Install minimal dependencies
+    RUN npm install express
+    
+    # Expose port
+    EXPOSE 3000
+    
+    # Start app
+    CMD ["node", "app.js"]
+
+### app.js
+
+    const express = require('express');
+    const app = express();
+    
+    app.get('/', (req, res) => {
+      console.log(`[${new Date().toISOString()}] GET / request received`);
+      res.send('🚀 Sample Node App for Promtail Logging Demo!');
+    });
+    
+    setInterval(() => {
+      console.log(`[${new Date().toISOString()}] App heartbeat log`);
+    }, 5000);
+    
+    app.listen(3000, () => {
+      console.log('Server running on port 3000');
+    });
  ###  devops-task.yaml  
     apiVersion: apps/v1
     kind: Deployment
@@ -25,9 +64,26 @@
         spec:
           containers:
           - name: devops-task-app
-            image: saravana2002/devops-task:latest
+            image: saravana2002/demo-node-logger:latest
+            imagePullPolicy: Always
             ports:
-            - containerPort: 3000   # 👈 app listens inside pod
+            - containerPort: 3000
+            env:
+              - name: NODE_ENV
+                value: production
+            command: ["/bin/sh", "-c"]
+            args:
+              - |
+                mkdir -p /usr/src/app/logs && \
+                node app.js 2>&1 | tee -a /usr/src/app/logs/app.log
+            volumeMounts:
+              - name: app-logs
+                mountPath: /usr/src/app/logs
+          volumes:
+            - name: app-logs
+              hostPath:
+                path: /var/log/adq-dev
+                type: DirectoryOrCreate
     ---
     apiVersion: v1
     kind: Service
@@ -38,9 +94,10 @@
       selector:
         app: devops-task-app
       ports:
-        - port: 80         # 👈 service port
-          targetPort: 3000 # 👈 forwards into pod containerPort
-      type: ClusterIP      # 👈 always use ClusterIP when behind ingress
+        - port: 80
+          targetPort: 3000
+      type: ClusterIP
+    
 
 
 ###  tls-devops-task.yaml
