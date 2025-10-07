@@ -145,10 +145,12 @@
                   number: 80
 
 # eks-metrics:
+    
     cd eks-metric/
-    [root@ip-10-10-101-140 eks-metric]# ls
-    cAdvisor.yaml        kube-state-metrics.yaml  loki-linux-amd64.zip.1  prometheus-ingress.yaml  promtail.yaml
-    ebs-csi-policy.json  loki-linux-amd64.zip     node-expoter.yaml       prometheus.yaml          storageclass.yaml
+    0            cAdvisor.yaml        kube-state-metrics.yaml  loki-linux-amd64.zip.1  node-expoter.yaml      promtail.yaml
+    bundle.yaml  ebs-csi-policy.json  loki-linux-amd64.zip     lokicheck.sh            prometheus-stack.yaml  storageclass.yaml
+    [root@ip-10-10-101-140 eks-metric]#
+
 
 ### storageclass.yaml
 
@@ -162,28 +164,25 @@
     reclaimPolicy: Delete
     volumeBindingMode: WaitForFirstConsumer
 
- ###  prometheus.yaml 
-
-     ---
-    apiVersion: v1
-    kind: Namespace
-    metadata:
-      name: monitoring
+ ###  prometheus-stack.yaml 
+     [root@ip-10-10-101-140 eks-metric]# cat prometheus-stack.yaml
     ---
+    # ServiceAccount for Prometheus
     apiVersion: v1
     kind: ServiceAccount
     metadata:
       name: prometheus
       namespace: monitoring
     ---
+    # RBAC for Prometheus
     apiVersion: rbac.authorization.k8s.io/v1
     kind: ClusterRole
     metadata:
       name: prometheus
     rules:
       - apiGroups: [""]
-        resources: ["nodes", "nodes/proxy", "services", "endpoints", "pods", "namespaces"]
-        verbs: ["get", "list", "watch"]
+        resources: ["nodes", "nodes/proxy", "services", "endpoints", "pods", "namespaces", "events"]
+        verbs: ["get", "list", "watch", "create", "patch"]
       - apiGroups: ["apps", "extensions"]
         resources: ["deployments", "replicasets", "daemonsets", "statefulsets"]
         verbs: ["get", "list", "watch"]
@@ -193,6 +192,9 @@
       - apiGroups: ["coordination.k8s.io"]
         resources: ["leases"]
         verbs: ["get", "list", "watch", "create", "update", "patch"]
+      - apiGroups: ["monitoring.coreos.com"]
+        resources: ["prometheuses","alertmanagers","servicemonitors","prometheusrules","thanosrulers","podmonitors","scrapeconfigs"]
+        verbs: ["get","list","watch","create","update","patch"]
     ---
     apiVersion: rbac.authorization.k8s.io/v1
     kind: ClusterRoleBinding
@@ -207,144 +209,57 @@
         name: prometheus
         namespace: monitoring
     ---
-    apiVersion: v1
-    kind: ConfigMap
-    metadata:
-      name: prometheus-config
-      namespace: monitoring
-    data:
-      prometheus.yml: |
-        global:
-          scrape_interval: 15s
-          evaluation_interval: 30s
-    
-        scrape_configs:
-    
-          - job_name: 'node-exporter'
-            static_configs:
-            - targets: ['node-exporter.monitoring.svc.cluster.local:9100']
-    
-    
-    
-          # Node Exporter
-          - job_name: "node-exporter"
-            kubernetes_sd_configs:
-              - role: endpoints
-            relabel_configs:
-              - source_labels: [__meta_kubernetes_service_label_app_kubernetes_io_name]
-                regex: node-exporter
-                action: keep
-    
-          # Kube State Metrics
-          - job_name: "kube-state-metrics"
-            kubernetes_sd_configs:
-              - role: endpoints
-            relabel_configs:
-              - source_labels: [__meta_kubernetes_service_label_app]
-                regex: kube-state-metrics
-                action: keep
-    
-          # cAdvisor
-          - job_name: "cadvisor"
-            kubernetes_sd_configs:
-              - role: pod
-            relabel_configs:
-              - source_labels: [__meta_kubernetes_pod_label_app]
-                regex: cadvisor
-                action: keep
-    
-              - source_labels: [__meta_kubernetes_pod_container_port_number]
-                regex: "8080"
-                action: keep
-    
-          # Kubernetes Pods (scrape if annotated)
-          - job_name: "kubernetes-pods"
-            kubernetes_sd_configs:
-              - role: pod
-            relabel_configs:
-              - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
-                regex: "true"
-                action: keep
-              - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
-                target_label: __metrics_path__
-                regex: (.+)
-                action: replace
-              - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
-                target_label: __address__
-                regex: (.+):\d+;(\d+)
-                replacement: $1:$2
-                action: replace
-    ---
-    apiVersion: v1
-    kind: PersistentVolumeClaim
-    metadata:
-      name: prometheus-data
-      namespace: monitoring
-    spec:
-      accessModes:
-        - ReadWriteOnce
-      resources:
-        requests:
-          storage: 10Gi
-      storageClassName: gp3
-    ---
-    apiVersion: apps/v1
-    kind: Deployment
+    # Prometheus CR (Operator will create StatefulSet)
+    apiVersion: monitoring.coreos.com/v1
+    kind: Prometheus
     metadata:
       name: prometheus
       namespace: monitoring
-      labels:
-        app: prometheus
     spec:
       replicas: 1
-      selector:
-        matchLabels:
-          app: prometheus
-      template:
-        metadata:
-          labels:
-            app: prometheus
-        spec:
-          serviceAccountName: prometheus
-          securityContext:
-            fsGroup: 65534
-          containers:
-            - name: prometheus
-              image: prom/prometheus:v2.54.0
-              args:
-                - --config.file=/etc/prometheus/prometheus.yml
-                - --storage.tsdb.path=/prometheus
-                - --web.enable-lifecycle
-              ports:
-                - containerPort: 9090
-              volumeMounts:
-                - name: config
-                  mountPath: /etc/prometheus
-                - name: data
-                  mountPath: /prometheus
-          volumes:
-            - name: config
-              configMap:
-                name: prometheus-config
-            - name: data
-              persistentVolumeClaim:
-                claimName: prometheus-data
+      serviceAccountName: prometheus
+      serviceMonitorSelector: {}
+      podMonitorSelector: {}
+      resources:
+        requests:
+          memory: 400Mi
+          cpu: 200m
+      retention: 10d
+      enableAdminAPI: true
+      securityContext:
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+      storage:
+        volumeClaimTemplate:
+          metadata:
+            name: prometheus-data
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 10Gi
+            storageClassName: gp3
     ---
+    # Prometheus Service
     apiVersion: v1
     kind: Service
     metadata:
-      name: prometheus
+      name: prometheus-service
       namespace: monitoring
+      labels:
+        app.kubernetes.io/name: prometheus
+        app.kubernetes.io/instance: prometheus
     spec:
-      selector:
-        app: prometheus
-      ports:
-        - name: web
-          port: 9090
-          targetPort: 9090
       type: ClusterIP
-    
- ###  prometheus-ingress.yaml
+      ports:
+      - name: web
+        port: 9090
+        targetPort: web
+      selector:
+        prometheus: prometheus
+    ---
+    # Ingress for Prometheus
     apiVersion: networking.k8s.io/v1
     kind: Ingress
     metadata:
@@ -355,21 +270,90 @@
     spec:
       ingressClassName: nginx
       tls:
-      - hosts:
-        - prometheus.adqget.bar
-        secretName: prometheus-tls
+        - hosts:
+            - prometheus.adqget.bar
+          secretName: prometheus-tls
       rules:
-      - host: prometheus.adqget.bar
-        http:
-          paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: prometheus-nodeport   # your Prometheus svc name
-                port:
-                  number: 9090
-    
+        - host: prometheus.adqget.bar
+          http:
+            paths:
+              - path: /
+                pathType: Prefix
+                backend:
+                  service:
+                    name: prometheus-service
+                    port:
+                      number: 9090
+    ---
+    # ServiceMonitor for Node Exporter
+    apiVersion: monitoring.coreos.com/v1
+    kind: ServiceMonitor
+    metadata:
+      name: node-exporter
+      namespace: monitoring
+    spec:
+      selector:
+        matchLabels:
+          app: node-exporter
+      namespaceSelector:
+        matchNames:
+          - monitoring
+      endpoints:
+      - port: metrics
+        interval: 15s
+    ---
+    # ServiceMonitor for Kube State Metrics
+    apiVersion: monitoring.coreos.com/v1
+    kind: ServiceMonitor
+    metadata:
+      name: kube-state-metrics
+      namespace: monitoring
+    spec:
+      selector:
+        matchLabels:
+          app: kube-state-metrics
+      namespaceSelector:
+        matchNames:
+          - monitoring
+      endpoints:
+      - port: http-metrics
+        interval: 15s
+    ---
+    # PodMonitor for cAdvisor
+    apiVersion: monitoring.coreos.com/v1
+    kind: PodMonitor
+    metadata:
+      name: cadvisor
+      namespace: monitoring
+    spec:
+      selector:
+        matchLabels:
+          app: cadvisor
+      namespaceSelector:
+        matchNames:
+          - monitoring
+      podMetricsEndpoints:
+      - port: http-metrics
+        interval: 15s
+    ---
+    # Prometheus Rules for Cluster Usage
+    apiVersion: monitoring.coreos.com/v1
+    kind: PrometheusRule
+    metadata:
+      name: cluster-rules
+      namespace: monitoring
+    spec:
+      groups:
+      - name: cluster.rules
+        rules:
+        - record: instance:node_memory_utilisation:ratio
+          expr: 1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)
+        - record: instance:node_cpu_utilisation:rate5m
+          expr: 1 - avg without (cpu) (rate(node_cpu_seconds_total{mode="idle"}[5m]))
+        - record: instance:node_disk_utilisation:rate5m
+          expr: rate(node_disk_io_time_seconds_total[5m])
+
+
 ### node-expoter.yaml  
 
     # node-exporter.yaml
@@ -706,6 +690,7 @@
 
 ### cAdvisor.yaml
 
+      apiVersion: apps/v1
     kind: DaemonSet
     metadata:
       name: cadvisor
@@ -752,7 +737,8 @@
                 path: /sys
             - name: docker
               hostPath:
-                path: /var/lib/docker    
+                path: /var/lib/docker
+ 
  ### ebs-csi-policy.json
 
      {
