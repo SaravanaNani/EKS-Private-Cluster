@@ -46,18 +46,38 @@ This document provides step-by-step instructions to set up an AWS EKS cluster wi
 
 **1.4.1 Bastion SG: `adq-dev-sg-bastion`**
 
-* Ingress: TCP 22 → your office/public IP
+* Ingress: TCP 22 → your office/public IP [0.0.0.0/0]	
+
+* Ingress: All ICMP - IPv4 → public IP [0.0.0.0/0]	
+
+* Ingress: TCP 3100- IPv4 → adq-dev-sg-eks-nodes	
+
+* Ingress: TCP 9100- IPv4 → adq-dev-sg-eks-nodes	
+
+* Ingress: TCP 3000 → your office/public IP [0.0.0.0/0]	
+
+* Egress: HTTPS 443 → your office/public IP
+
 
 **1.4.2 EKS Control Plane SG: `adq-dev-sg-eks-controlplane`**
 
-* Ingress: 443, 10250 from EKS nodes
+* Ingress: 80, 443, 10250 from EKS nodes SG
 
 **1.4.3 EKS Nodes SG: `adq-dev-sg-eks-nodes`**
 
-* Ingress: 443 → `adq-dev-sg-eks-controlplane`
-  10250 → `adq-dev-sg-eks-nodes`
-  30000–32767 → 0.0.0.0/0 - anywhere
-  22 → `adq-dev-sg-bastion`
+* Ingress: Custom TCP 3100 → adq-dev-sg-bastionhost
+* Ingress: Custom TCP 8080 → adq-dev-sg-bastionhost
+* Ingress: Custom TCP 3000-32767 → public IP [0.0.0.0/0] (Optional)	
+
+* Ingress: Custom TCP 9100 → bastionhost-pvt-IP/32
+* Ingress: Custom TCP 9100 → adq-dev-sg-bastionhost
+
+
+* Ingress: Custom TCP 10250 → adq-dev-sg-bastionhost
+* Ingress: Custom TCP 10250 → adq-dev-sg-eks-nodes
+* Ingress: TCP 22 → adq-dev-sg-bastionhost
+* Ingress: HTTS 443 → 0.0.0.0/0
+
 
 **1.4.4 DB SG: `adq-dev-sg-db`**
 
