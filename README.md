@@ -76,7 +76,8 @@ This document provides step-by-step instructions to set up an AWS EKS cluster wi
 * Ingress: Custom TCP 10250 → adq-dev-sg-bastionhost
 * Ingress: Custom TCP 10250 → adq-dev-sg-eks-nodes
 * Ingress: TCP 22 → adq-dev-sg-bastionhost
-* Ingress: HTTS 443 → 0.0.0.0/0
+* Ingress: HTTPS 443 → 0.0.0.0/0
+* Ingress: HTTP 80 → 0.0.0.0/0
 
 
 **1.4.4 DB SG: `adq-dev-sg-db`**
