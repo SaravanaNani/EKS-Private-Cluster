@@ -3,12 +3,12 @@ entries:
   my-app-helm:
   - apiVersion: v2
     appVersion: 1.0.0
-    created: "2025-10-14T07:12:38.681781314Z"
+    created: "2025-10-14T07:24:23.262488452Z"
     description: A Helm chart for deploying the DevOps Task App
     digest: 279743e64f990a58980708ce4150d53998aa2723e600539a97a9c9ba5fb797ec
     name: my-app-helm
     type: application
     urls:
-    - https://SaravanaNani.github.io/helm-charts/my-app-helm-0.1.0.tgz
+    - https://SaravanaNani.github.io/EKS-Private-Cluster/my-app-helm-0.1.0.tgz
     version: 0.1.0
-generated: "2025-10-14T07:12:38.680146981Z"
+generated: "2025-10-14T07:24:23.262003237Z"
